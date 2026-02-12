@@ -1,22 +1,18 @@
-My First LLM Benchmark on OpenShift -- What I Learned Running GuideLLM Against a Live Model
+Exploring GuideLLM: Benchmarking a Live LLM Deployment on OpenShift
 
 
-I recently started learning GuideLLM, an open-source benchmarking tool that lives under the vLLM project umbrella. My goal was simple: I have a model running on OpenShift, and I want to know how fast it actually is. Not marketing numbers. Not vibes. Real numbers from my own cluster.
+As part of evaluating inference performance for LLM deployments on OpenShift, I recently started exploring GuideLLM, an open-source benchmarking tool that lives under the vLLM project. I had a model already running on my cluster and wanted to understand its actual performance characteristics under different load conditions.
 
-This post covers everything I did, everything that broke, and what the results actually told me.
+In this post, I will walk through the setup process, the issues I ran into along the way, and how to interpret the benchmark results.
 
 
-What is GuideLLM and Why Should You Care
+What is GuideLLM
 
-If you are serving an LLM in production, the first question everyone asks is "how many users can it handle?" The second question is "at what point does it start feeling slow?"
+GuideLLM is an SLO-aware benchmarking and evaluation tool designed specifically for LLM inference endpoints. It simulates realistic user traffic against any OpenAI-compatible API, whether that is vLLM, Red Hat AI Inference Server, or TGI, and measures the key metrics that define the end-user experience: time to first token, inter-token latency, throughput, and request latency.
 
-GuideLLM answers both.
+What sets it apart from general-purpose load testing tools is that it understands the nature of LLM workloads. It knows about tokens, streaming responses, and the specific performance patterns that matter when serving generative AI models.
 
-It is an SLO-aware benchmarking tool that simulates real users hitting your LLM endpoint. You point it at any OpenAI-compatible API (vLLM, Red Hat AI Inference Server, TGI), and it fires off requests at different rates, measuring exactly how the model behaves under pressure.
-
-Think of it as a load tester built specifically for LLMs. It understands tokens, streaming responses, time-to-first-token, and all the metrics that matter for the end-user experience.
-
-The project lives at github.com/vllm-project/guidellm and was originally created by Neuralmagic (now part of Red Hat).
+The project was originally created by Neuralmagic (now part of Red Hat) and is hosted at github.com/vllm-project/guidellm.
 
 
 My Setup
