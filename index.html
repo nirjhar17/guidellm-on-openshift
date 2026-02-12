@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Exploring GuideLLM: Benchmarking a Live LLM on OpenShift</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script>hljs.highlightAll();</script>
+  <style>
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      max-width: 780px;
+      margin: 0 auto;
+      padding: 40px 20px;
+      background: #fff;
+      color: #1a1a1a;
+      line-height: 1.75;
+      font-size: 18px;
+    }
+    h1 {
+      font-size: 36px;
+      font-weight: 700;
+      line-height: 1.2;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      color: #6b6b6b;
+      font-size: 20px;
+      line-height: 1.5;
+      margin-bottom: 32px;
+    }
+    h2 {
+      font-size: 26px;
+      font-weight: 700;
+      margin-top: 48px;
+      margin-bottom: 16px;
+      border-bottom: 1px solid #e6e6e6;
+      padding-bottom: 8px;
+    }
+    h3 {
+      font-size: 22px;
+      font-weight: 600;
+      margin-top: 36px;
+      margin-bottom: 12px;
+    }
+    p { margin: 16px 0; }
+    hr {
+      border: none;
+      border-top: 1px solid #e6e6e6;
+      margin: 40px 0;
+    }
+    pre {
+      background: #0d1117;
+      border-radius: 8px;
+      padding: 20px;
+      overflow-x: auto;
+      margin: 20px 0;
+    }
+    pre code {
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      font-size: 14px;
+      line-height: 1.5;
+      color: #e6edf3;
+    }
+    code {
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      background: #f0f0f0;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 15px;
+    }
+    pre code {
+      background: none;
+      padding: 0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+      font-size: 16px;
+    }
+    th {
+      background: #f6f8fa;
+      font-weight: 600;
+      text-align: left;
+      padding: 12px 16px;
+      border: 1px solid #d0d7de;
+    }
+    td {
+      padding: 10px 16px;
+      border: 1px solid #d0d7de;
+    }
+    tr:nth-child(even) { background: #f9fafb; }
+    ul, ol { padding-left: 28px; }
+    li { margin: 8px 0; }
+    strong { font-weight: 600; }
+    blockquote {
+      border-left: 4px solid #3b82f6;
+      margin: 24px 0;
+      padding: 12px 20px;
+      background: #eff6ff;
+      border-radius: 0 8px 8px 0;
+      color: #1e40af;
+      font-style: italic;
+    }
+    .fig-placeholder {
+      background: #f8f9fa;
+      border: 2px dashed #d0d7de;
+      border-radius: 8px;
+      padding: 40px;
+      text-align: center;
+      color: #6b6b6b;
+      font-style: italic;
+      margin: 24px 0;
+    }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .author-section {
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 24px;
+      margin-top: 48px;
+    }
+    .disclaimer {
+      color: #6b6b6b;
+      font-size: 14px;
+      margin-top: 32px;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+
+<h1>Exploring GuideLLM: Benchmarking a Live LLM on OpenShift</h1>
+<p class="subtitle">A hands-on guide to running GuideLLM benchmarks against a vLLM model served via KServe on Red Hat OpenShift, interpreting the results, and understanding what the metrics mean for production capacity planning.</p>
+
+<hr>
+
+<h2>What We Are Building</h2>
+
+<p>In this blog, we will set up and run a GuideLLM benchmark against a live LLM deployment on OpenShift. The goal is to answer a straightforward question: how does this model perform under increasing load, and at what point does the user experience start to degrade?</p>
+
+<p>We will run GuideLLM as a Kubernetes Job inside the cluster, targeting a Qwen3-0.6B model served through KServe with vLLM as the inference engine. GuideLLM will execute a <strong>sweep</strong> profile, automatically increasing the request rate from idle to maximum throughput across 10 rounds, and produce an interactive HTML report with detailed latency and throughput metrics.</p>
+
+<p>By the end, we will have concrete numbers for time to first token, inter-token latency, throughput, and request latency at every load level, along with a clear understanding of the model's capacity limit on our hardware.</p>
+
+<div class="fig-placeholder">Fig 1: GuideLLM HTML Report &mdash; Metrics Details<br><em>(Insert screenshot of the full HTML report here)</em></div>
+
+<hr>
+
+<h2>Why GuideLLM?</h2>
+
+<p>GuideLLM is an SLO-aware benchmarking and evaluation tool designed specifically for LLM inference endpoints. It is part of the vLLM project and was originally created by Neuralmagic (now part of Red Hat).</p>
+
+<p>Unlike general-purpose load testing tools such as <code>wrk</code> or <code>Locust</code>, GuideLLM understands the nature of LLM workloads. It knows about tokens, streaming responses, time-to-first-token, and the specific latency patterns that matter when serving generative AI models. It supports six different load profiles:</p>
+
+<ul>
+  <li><strong>synchronous</strong> &mdash; Sends one request at a time, waits for the response, then sends the next. Gives you the baseline single-user performance.</li>
+  <li><strong>concurrent</strong> &mdash; Keeps a fixed number of requests in flight at all times. Simulates a known number of simultaneous users.</li>
+  <li><strong>throughput</strong> &mdash; Sends requests as fast as possible with no rate limit. Finds the absolute maximum your GPU can handle.</li>
+  <li><strong>constant</strong> &mdash; Sends requests at a fixed rate (e.g., exactly 5 req/s). Tests whether your model can sustain a specific target load.</li>
+  <li><strong>poisson</strong> &mdash; Sends requests at a target rate but with random spacing between them. Simulates realistic production traffic.</li>
+  <li><strong>sweep</strong> &mdash; Automatically runs multiple rounds at increasing rates from idle to max. Finds your saturation point in a single run.</li>
+</ul>
+
+<p>GuideLLM can also generate synthetic data calibrated to a specific tokenizer and produces both machine-readable JSON and a visual HTML report.</p>
+
+<p>For our purposes, the <strong>sweep</strong> profile is the most informative starting point. It automatically tests increasing request rates so we can observe exactly where the model transitions from healthy to saturated, without having to guess the right concurrency levels upfront.</p>
+
+<hr>
+
+<h2>Why Run Inside the Cluster?</h2>
+
+<p>GuideLLM can be installed locally on a laptop and pointed at an external Route:</p>
+
+<pre><code class="language-bash">pip install guidellm[recommended]
+guidellm benchmark run --target "https://&lt;your-route-url&gt;" --model "Qwen/Qwen3-0.6B" --profile sweep</code></pre>
+
+<p>This works for quick tests, but the numbers will include network latency from the laptop to the cluster, which pollutes the results.</p>
+
+<p>Running GuideLLM as a <strong>Kubernetes Job</strong> inside the cluster eliminates that noise. The Job pod communicates with the model service over the internal cluster network, giving us pure inference performance numbers. The container image <code>ghcr.io/vllm-project/guidellm:v0.5.0</code> comes ready to use with no additional installation.</p>
+
+<hr>
+
+<h2>A Note on KServe and vLLM</h2>
+
+<p>For anyone unfamiliar with the relationship between these two components:</p>
+
+<ul>
+  <li><strong>KServe</strong> is the Kubernetes-native serving platform that handles infrastructure concerns &mdash; autoscaling, traffic routing, canary deployments, and health checks.</li>
+  <li><strong>vLLM</strong> is the inference engine that actually loads the model weights, runs the forward pass, and generates tokens.</li>
+</ul>
+
+<p>When a model is deployed through KServe on OpenShift AI, KServe creates the pods and services, and inside those pods vLLM does the actual work. The target for our benchmark is the vLLM engine, managed and exposed by KServe.</p>
+
+<hr>
+
+<h2>The Full Stack</h2>
+
+<p>Here is the complete environment for this benchmark:</p>
+
+<table>
+  <thead>
+    <tr><th>Component</th><th>Details</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>Model</strong></td><td>Qwen/Qwen3-0.6B (0.6B parameters)</td></tr>
+    <tr><td><strong>Inference Engine</strong></td><td>vLLM via KServe InferenceService</td></tr>
+    <tr><td><strong>Benchmarking Tool</strong></td><td>GuideLLM v0.5.0 (as Kubernetes Job)</td></tr>
+    <tr><td><strong>Cluster</strong></td><td>OpenShift 4.17 on AWS (ROSA)</td></tr>
+    <tr><td><strong>GPU</strong></td><td>NVIDIA Tesla T4 (single GPU node)</td></tr>
+    <tr><td><strong>Model Namespace</strong></td><td><code>my-first-model</code></td></tr>
+    <tr><td><strong>Benchmark Namespace</strong></td><td><code>guidellm-lab</code></td></tr>
+  </tbody>
+</table>
+
+<p>Everything runs inside the OpenShift cluster. GuideLLM communicates with vLLM over the internal service network, so the results reflect pure inference performance without external network overhead.</p>
+
+<hr>
+
+<h2>Architecture</h2>
+
+<div class="fig-placeholder">Fig 2: Benchmark Architecture<br><em>(Insert architecture diagram here)</em></div>
+
+<p>The benchmark flow works as follows:</p>
+
+<ol>
+  <li>The GuideLLM Job pod starts in the <code>guidellm-lab</code> namespace</li>
+  <li>It connects to the vLLM model service in <code>my-first-model</code> namespace using internal cluster DNS</li>
+  <li>GuideLLM downloads the Qwen3 tokenizer from Hugging Face to calibrate its synthetic data generator</li>
+  <li>It begins sending requests at increasing rates (sweep profile &mdash; 10 rounds)</li>
+  <li>Results are written to a PersistentVolumeClaim so they survive after the Job pod terminates</li>
+</ol>
+
+<hr>
+
+<h2>Prerequisites</h2>
+
+<p>Before starting, make sure you have:</p>
+
+<ul>
+  <li>A model already deployed and serving via KServe (we use Qwen3-0.6B, but any OpenAI-compatible endpoint works)</li>
+  <li>The <code>oc</code> CLI installed and logged in with cluster-admin access</li>
+  <li>GPU nodes available in the cluster with the NVIDIA GPU Operator and Node Feature Discovery installed</li>
+</ul>
+
+<hr>
+
+<h2>Step 1: Create the Namespace</h2>
+
+<p>Create a dedicated namespace for benchmarking work, separate from the model serving namespace.</p>
+
+<pre><code class="language-bash">oc new-project guidellm-lab</code></pre>
+
+<hr>
+
+<h2>Step 2: Create the Results PVC</h2>
+
+<p>When a Kubernetes Job completes, the pod is terminated and everything in the container filesystem is lost. We need a PersistentVolumeClaim to persist the benchmark outputs beyond the pod lifecycle.</p>
+
+<pre><code class="language-yaml">apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: guidellm-results-pvc
+  namespace: guidellm-lab
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi</code></pre>
+
+<p>Apply it:</p>
+
+<pre><code class="language-bash">oc apply -f manifests/02-pvc.yaml</code></pre>
+
+<p>Verify:</p>
+
+<pre><code class="language-bash">oc get pvc -n guidellm-lab
+# Expected: guidellm-results-pvc   Bound   ...   5Gi   RWO</code></pre>
+
+<hr>
+
+<h2>Step 3: Deploy the GuideLLM Benchmark Job</h2>
+
+<p>This is where GuideLLM gets configured. The Job manifest defines what to benchmark, how to benchmark it, and where to store the results.</p>
+
+<pre><code class="language-yaml">apiVersion: batch/v1
+kind: Job
+metadata:
+  name: guidellm-first-benchmark
+  namespace: guidellm-lab
+spec:
+  template:
+    spec:
+      containers:
+      - name: guidellm
+        image: ghcr.io/vllm-project/guidellm:v0.5.0
+        env:
+        - name: HOME
+          value: /results
+        command: ["guidellm"]
+        args:
+        - "benchmark"
+        - "run"
+        - "--target"
+        - "https://qwen3-0-6b-kserve-workload-svc.my-first-model.svc.cluster.local:8000"
+        - "--model"
+        - "Qwen/Qwen3-0.6B"
+        - "--backend-kwargs"
+        - '{"verify": false}'
+        - "--data"
+        - '{"prompt_tokens":256,"output_tokens":128}'
+        - "--profile"
+        - "sweep"
+        - "--max-seconds"
+        - "30"
+        - "--output-dir"
+        - "/results"
+        - "--outputs"
+        - "benchmarks.json,benchmarks.html"
+        volumeMounts:
+        - name: results
+          mountPath: /results
+      volumes:
+      - name: results
+        persistentVolumeClaim:
+          claimName: guidellm-results-pvc
+      restartPolicy: Never
+  backoffLimit: 1</code></pre>
+
+<h3>What Each Argument Does</h3>
+
+<table>
+  <thead>
+    <tr><th>Argument</th><th>Value</th><th>Purpose</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>--target</code></td><td><code>https://...svc.cluster.local:8000</code></td><td>Internal HTTPS service URL of the model. Must be <code>https</code> &mdash; KServe enforces TLS.</td></tr>
+    <tr><td><code>--model</code></td><td><code>Qwen/Qwen3-0.6B</code></td><td>Tells GuideLLM which tokenizer to download for accurate token counting.</td></tr>
+    <tr><td><code>--backend-kwargs</code></td><td><code>{"verify": false}</code></td><td>Disables SSL certificate verification &mdash; needed for KServe's self-signed certs.</td></tr>
+    <tr><td><code>--data</code></td><td><code>{"prompt_tokens":256,"output_tokens":128}</code></td><td>Synthetic workload: 256-token prompts, 128-token responses.</td></tr>
+    <tr><td><code>--profile</code></td><td><code>sweep</code></td><td>Automatically tests increasing request rates across 10 rounds.</td></tr>
+    <tr><td><code>--max-seconds</code></td><td><code>30</code></td><td>Each rate level runs for 30 seconds.</td></tr>
+    <tr><td><code>--outputs</code></td><td><code>benchmarks.json,benchmarks.html</code></td><td>Produce both JSON (programmatic) and HTML (visual report).</td></tr>
+  </tbody>
+</table>
+
+<p>Apply it:</p>
+
+<pre><code class="language-bash">oc apply -f manifests/03-benchmark-job.yaml</code></pre>
+
+<hr>
+
+<h2>Why the Tokenizer Matters</h2>
+
+<p>When GuideLLM starts, one of the first things it does is download the tokenizer for the target model. The logs show:</p>
+
+<pre><code>✔ Processor resolved — Using model 'Qwen/Qwen3-0.6B' as processor</code></pre>
+
+<p>This is necessary because GuideLLM needs to generate synthetic prompts of exactly 256 tokens, and "256 tokens" means something different for every model. Each model has its own vocabulary and its own way of splitting text into tokens. The word "benchmarking" might be one token for one model and two tokens for another.</p>
+
+<p>GuideLLM downloads the small tokenizer file (not the model weights, just the vocabulary mapping), uses it to precisely calibrate token counts, and generates prompts that are exactly 256 tokens in the target model's language.</p>
+
+<blockquote><strong>Important for disconnected environments:</strong> The synthetic prompt corpus is built into GuideLLM, but the tokenizer requires an internet download. In an air-gapped cluster, you would need to pre-download the tokenizer and make it available via a PVC. Red Hat has a detailed article covering this workflow: <a href="https://developers.redhat.com/articles/2025/09/15/benchmarking-guidellm-air-gapped-openshift-clusters">Benchmarking GuideLLM in air-gapped OpenShift clusters</a>.</blockquote>
+
+<hr>
+
+<h2>Step 4: Monitor the Job</h2>
+
+<p>Watch the Job progress:</p>
+
+<pre><code class="language-bash">oc get pods -n guidellm-lab -w</code></pre>
+
+<p>The pod will go through <code>Init</code> → <code>Running</code> (several minutes as it executes the 10 sweep rounds) → <code>Completed</code>.</p>
+
+<p>You can also tail the logs in real time:</p>
+
+<pre><code class="language-bash">oc logs -f job/guidellm-first-benchmark -n guidellm-lab</code></pre>
+
+<hr>
+
+<h2>Step 5: Retrieve the Results</h2>
+
+<p>Since the Job pod is terminated after completion, we need a helper pod to access the PVC and copy the files out.</p>
+
+<pre><code class="language-yaml">apiVersion: v1
+kind: Pod
+metadata:
+  name: pvc-inspector
+  namespace: guidellm-lab
+spec:
+  containers:
+  - name: inspector
+    image: registry.access.redhat.com/ubi9/ubi:latest
+    command: ["sleep", "infinity"]
+    volumeMounts:
+    - name: results
+      mountPath: /mnt/results
+  volumes:
+  - name: results
+    persistentVolumeClaim:
+      claimName: guidellm-results-pvc</code></pre>
+
+<p>Apply it and copy the results:</p>
+
+<pre><code class="language-bash"># Deploy the inspector pod
+oc apply -f manifests/04-pvc-inspector.yaml
+
+# Wait for it to be running
+oc get pods -n guidellm-lab -w
+
+# Copy results to your local machine
+oc cp guidellm-lab/pvc-inspector:/mnt/results/benchmarks.html ./benchmarks.html
+oc cp guidellm-lab/pvc-inspector:/mnt/results/benchmarks.json ./benchmarks.json
+
+# Open the report
+open benchmarks.html</code></pre>
+
+<hr>
+
+<h2>Troubleshooting: Two Gotchas with KServe</h2>
+
+<p>During the initial setup, we ran into two issues worth documenting.</p>
+
+<h3>Issue 1: Server disconnected without sending a response</h3>
+
+<pre><code>httpcore.RemoteProtocolError: Server disconnected without sending a response.</code></pre>
+
+<p><strong>Cause:</strong> The target URL used <code>http://</code>. KServe enforces TLS by default, so the model only listens on HTTPS.</p>
+
+<p><strong>Fix:</strong> Change the URL scheme to <code>https://</code>.</p>
+
+<h3>Issue 2: Unexpected keyword argument verify_ssl</h3>
+
+<pre><code>TypeError: OpenAIHTTPBackend.__init__() got an unexpected keyword argument 'verify_ssl'</code></pre>
+
+<p><strong>Cause:</strong> KServe uses self-signed certificates for internal TLS. We tried to disable verification with <code>verify_ssl</code>, but the correct parameter name is <code>verify</code>.</p>
+
+<p><strong>Fix:</strong> Use <code>--backend-kwargs '{"verify": false}'</code> (not <code>verify_ssl</code>).</p>
+
+<hr>
+
+<h2>Understanding the Results</h2>
+
+<p>GuideLLM produces an interactive HTML report with several sections. Here is how to read each one.</p>
+
+<h3>Workload Details</h3>
+
+<div class="fig-placeholder">Fig 3: Workload Details &mdash; Prompt, Server, and Generated cards<br><em>(Insert screenshot here)</em></div>
+
+<p>The report header confirms the model (<code>Qwen/Qwen3-0.6B</code>) and the timestamp. Below that, three cards summarise the workload:</p>
+
+<ul>
+  <li><strong>Prompt</strong> &mdash; Sample request, mean prompt length (<strong>264 tokens</strong>), token distribution chart. The single spike at 264 confirms all synthetic prompts were the same size.</li>
+  <li><strong>Server</strong> &mdash; Target URL, <strong>10 benchmarks</strong> (the 10 sweep rounds), rate type. The bar chart shows request volume over time.</li>
+  <li><strong>Generated</strong> &mdash; Sample response from the model. Qwen3 responses start with <code>&lt;think&gt;</code> tags (built-in chain-of-thought reasoning). Mean generated length: <strong>128 tokens</strong>.</li>
+</ul>
+
+<h3>Interactive Sweep Slider</h3>
+
+<div class="fig-placeholder">Fig 4: Interactive Sweep Slider with four metric charts<br><em>(Insert screenshot here)</em></div>
+
+<p>A slider at the bottom moves from <strong>0.37 rps</strong> (lightest load) to <strong>8.53 rps</strong> (maximum throughput). Four line charts update as you move the slider:</p>
+
+<table>
+  <thead>
+    <tr><th>Metric</th><th>At Low Load (0.37 rps)</th><th>At Max Load (8.53 rps)</th><th>What It Means</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>Time to First Token</strong></td><td>34.59 ms</td><td>5000+ ms</td><td>How long before the first word appears</td></tr>
+    <tr><td><strong>Inter-Token Latency</strong></td><td>20.06 ms</td><td>147 ms</td><td>Gap between each streamed token</td></tr>
+    <tr><td><strong>Time Per Request</strong></td><td>2.58 s</td><td>24 s</td><td>Total time for a complete response</td></tr>
+    <tr><td><strong>Throughput</strong></td><td>50.87 tok/s</td><td>2000+ tok/s</td><td>Aggregate tokens per second (GPU utilisation)</td></tr>
+  </tbody>
+</table>
+
+<p>The first three metrics degrade with load. Throughput is the one metric that goes <em>up</em> &mdash; but this is aggregate throughput. Each individual user's experience is slower even though the GPU is busier overall.</p>
+
+<h3>Metrics Details: Percentile Breakdown</h3>
+
+<div class="fig-placeholder">Fig 5: TTFT and ITL charts with p50, p90, p95, p99 percentile lines<br><em>(Insert screenshot here)</em></div>
+
+<p>Below the slider, four detailed charts plot each metric against requests per second with percentile lines (<strong>p50</strong>, <strong>p90</strong>, <strong>p95</strong>, <strong>p99</strong>) and the <strong>mean</strong>.</p>
+
+<p><strong>What are percentiles?</strong> p50 is the median &mdash; half the requests were faster. p90 means 90% were faster. p99 means 99 out of 100 were faster. The gap between p50 and p99 reveals how consistent the experience is. For production SLOs, p99 matters more than the mean &mdash; it tells you about the worst-case experience for real users.</p>
+
+<p><strong>Time to First Token at 0.37 rps:</strong></p>
+
+<table>
+  <thead>
+    <tr><th>Percentile</th><th>Value</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>p50</td><td>31.98 ms</td></tr>
+    <tr><td>p90</td><td>34.59 ms</td></tr>
+    <tr><td>p95</td><td>612.22 ms</td></tr>
+    <tr><td>p99</td><td>612.22 ms</td></tr>
+    <tr><td>Mean</td><td>80.42 ms</td></tr>
+  </tbody>
+</table>
+
+<p>The p50 and p90 are tight (32&ndash;35 ms), indicating a consistent experience for most requests. The p95/p99 jump to 612 ms suggests a handful of outliers from warmup or garbage collection. The mean (80 ms) gets pulled up by these outliers &mdash; this is why percentiles are more useful than averages for capacity planning.</p>
+
+<p><strong>Inter-Token Latency at 0.37 rps:</strong></p>
+
+<table>
+  <thead>
+    <tr><th>Percentile</th><th>Value</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>p50</td><td>19.74 ms</td></tr>
+    <tr><td>p90</td><td>20.06 ms</td></tr>
+    <tr><td>p95</td><td>20.29 ms</td></tr>
+    <tr><td>p99</td><td>20.29 ms</td></tr>
+    <tr><td>Mean</td><td>19.82 ms</td></tr>
+  </tbody>
+</table>
+
+<p>The spread across all percentiles is less than <strong>0.55 milliseconds</strong>. Extremely consistent token generation at low load.</p>
+
+<div class="fig-placeholder">Fig 6: Time Per Request and Throughput charts<br><em>(Insert screenshot here)</em></div>
+
+<p><strong>Time Per Request at 0.37 rps:</strong></p>
+
+<table>
+  <thead>
+    <tr><th>Percentile</th><th>Value</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>p50</td><td>2.54 s</td></tr>
+    <tr><td>p90</td><td>2.58 s</td></tr>
+    <tr><td>p95</td><td>3.19 s</td></tr>
+    <tr><td>p99</td><td>3.19 s</td></tr>
+  </tbody>
+</table>
+
+<p><strong>Throughput</strong> shows the percentile lines fanning apart at higher loads. The mean line (aggregate throughput) climbs steadily, but the p50 line (individual user experience) flattens much earlier.</p>
+
+<p>The key insight: there is a <strong>clear inflection point around 5&ndash;6 requests per second</strong>. Below that, all metrics are stable. Above it, metrics degrade exponentially &mdash; the "hockey stick" curve that defines the model's saturation point.</p>
+
+<hr>
+
+<h2>Capacity Summary</h2>
+
+<p>Based on the sweep results for Qwen3-0.6B on a single NVIDIA Tesla T4:</p>
+
+<table>
+  <thead>
+    <tr><th>Metric</th><th>Value</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>Safe operating range</strong></td><td>1&ndash;5 requests per second</td></tr>
+    <tr><td><strong>TTFT at low load</strong></td><td>~32 ms (p50)</td></tr>
+    <tr><td><strong>ITL at low load</strong></td><td>~20 ms (p50), &lt;0.55 ms variance across percentiles</td></tr>
+    <tr><td><strong>Full response time</strong></td><td>~2.5 s for 128 tokens</td></tr>
+    <tr><td><strong>Saturation point</strong></td><td>Beyond 6 rps &mdash; TTFT jumps from ms to seconds</td></tr>
+    <tr><td><strong>Max aggregate throughput</strong></td><td>~2000 tok/s (with degraded per-user latency)</td></tr>
+    <tr><td><strong>Recommended SLO</strong></td><td>TTFT &lt; 200 ms at p99, ITL &lt; 50 ms at p99</td></tr>
+    <tr><td><strong>Capacity limit</strong></td><td>5 concurrent users, autoscale beyond that</td></tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2>What is Next</h2>
+
+<p>This was the first step in a series exploring GuideLLM on OpenShift. We ran a single sweep profile with one synthetic data configuration against one model. In the next post, we will go deeper into each metric GuideLLM produces, explore the gap between mean and p99, and examine which metrics matter most for different use cases such as chat applications, RAG pipelines, and batch processing.</p>
+
+<p>Future posts in this series will cover all six load profiles, synthetic versus real datasets, SLO validation, over-saturation detection, Red Hat AI Inference Server versus community vLLM, and distributed inference with llm-d.</p>
+
+<p>The complete manifests and deployment files are available on <a href="https://github.com/nirjhar17/guidellm-on-openshift">GitHub</a>.</p>
+
+<hr>
+
+<h2>References</h2>
+
+<ul>
+  <li><a href="https://github.com/vllm-project/guidellm">GuideLLM Repository</a></li>
+  <li><a href="https://developers.redhat.com/articles/2025/12/24/how-deploy-and-benchmark-vllm-guidellm-kubernetes">Red Hat: Deploy and benchmark vLLM with GuideLLM on Kubernetes (Dec 2025)</a></li>
+  <li><a href="https://developers.redhat.com/articles/2025/06/20/guidellm-evaluate-llm-deployments-real-world-inference">Red Hat: GuideLLM &mdash; Evaluate LLM deployments (Jun 2025)</a></li>
+  <li><a href="https://developers.redhat.com/articles/2025/09/15/benchmarking-guidellm-air-gapped-openshift-clusters">Red Hat: Benchmarking GuideLLM in air-gapped OpenShift clusters (Sep 2025)</a></li>
+</ul>
+
+<hr>
+
+<div class="author-section">
+  <h2 style="border:none; margin-top:0;">About Me</h2>
+  <p>I work on OpenShift, OpenShift AI, and observability solutions, focusing on simplifying complex setups into practical, repeatable steps for platform and development teams.</p>
+  <p>
+    🐙 GitHub: <a href="https://github.com/nirjhar17">github.com/nirjhar17</a><br>
+    💼 LinkedIn: <a href="https://linkedin.com/in/nirjhar-jajodia">linkedin.com/in/nirjhar-jajodia</a>
+  </p>
+</div>
+
+<p class="disclaimer">The views and opinions expressed in this article are my own and do not necessarily reflect the official policy or position of my employer. This guide is provided for educational purposes, and I make no warranties about the completeness, reliability, or accuracy of this information.</p>
+
+</body>
+</html>
