@@ -1,0 +1,43 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: guidellm-first-benchmark
+  namespace: guidellm-lab
+spec:
+  template:
+    spec:
+      containers:
+      - name: guidellm
+        image: ghcr.io/vllm-project/guidellm:v0.5.0
+        env:
+        - name: HOME
+          value: /results
+        command: ["guidellm"]
+        args:
+        - "benchmark"
+        - "run"
+        - "--target"
+        - "https://qwen3-0-6b-kserve-workload-svc.my-first-model.svc.cluster.local:8000"
+        - "--model"
+        - "Qwen/Qwen3-0.6B"
+        - "--backend-kwargs"
+        - '{"verify": false}'
+        - "--data"
+        - '{"prompt_tokens":256,"output_tokens":128}'
+        - "--profile"
+        - "sweep"
+        - "--max-seconds"
+        - "30"
+        - "--output-dir"
+        - "/results"
+        - "--outputs"
+        - "benchmarks.json,benchmarks.html"
+        volumeMounts:
+        - name: results
+          mountPath: /results
+      volumes:
+      - name: results
+        persistentVolumeClaim:
+          claimName: guidellm-results-pvc
+      restartPolicy: Never
+  backoffLimit: 1

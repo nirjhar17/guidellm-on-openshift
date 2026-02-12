@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pvc-inspector
+  namespace: guidellm-lab
+spec:
+  containers:
+  - name: inspector
+    image: registry.access.redhat.com/ubi9/ubi:latest
+    command: ["sleep", "infinity"]
+    volumeMounts:
+    - name: results
+      mountPath: /mnt/results
+  volumes:
+  - name: results
+    persistentVolumeClaim:
+      claimName: guidellm-results-pvc

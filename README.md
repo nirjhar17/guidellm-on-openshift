@@ -55,6 +55,32 @@ The full 11-step learning path is documented in [blog-series-plan.md](blog-serie
 - **Phase 3 (Steps 6-8):** Advanced features
 - **Phase 4 (Steps 9-11):** Enterprise production workflows
 
+## Manifests
+
+The `manifests/` folder contains ready-to-use OpenShift YAML files to run GuideLLM:
+
+| File | What it does |
+|------|-------------|
+| `01-namespace.yaml` | Creates the `guidellm-lab` namespace |
+| `02-pvc.yaml` | PersistentVolumeClaim to store benchmark results |
+| `03-benchmark-job.yaml` | GuideLLM Job that runs a sweep benchmark against the model |
+| `04-pvc-inspector.yaml` | Helper pod to retrieve results from the PVC after the Job completes |
+
+**Quick start:**
+
+```bash
+oc apply -f manifests/01-namespace.yaml
+oc apply -f manifests/02-pvc.yaml
+# Edit 03-benchmark-job.yaml to set your model's service URL
+oc apply -f manifests/03-benchmark-job.yaml
+# Wait for job to complete, then retrieve results:
+oc apply -f manifests/04-pvc-inspector.yaml
+oc cp guidellm-lab/pvc-inspector:/mnt/results/benchmarks.html ./benchmarks.html
+oc cp guidellm-lab/pvc-inspector:/mnt/results/benchmarks.json ./benchmarks.json
+```
+
+**Important:** Update the `--target` URL in `03-benchmark-job.yaml` to match your model's internal service URL. Also note the `--backend-kwargs '{"verify": false}'` flag -- this is needed when KServe uses self-signed TLS certificates.
+
 ## References
 
 - [GuideLLM Repository](https://github.com/vllm-project/guidellm)
