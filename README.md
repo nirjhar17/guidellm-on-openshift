@@ -23,17 +23,18 @@ This repo documents my journey learning GuideLLM by running it against live LLM 
 
 1. **[My First LLM Benchmark on OpenShift](blog-1-first-benchmark.md)** -- Setting up GuideLLM, running it as an OpenShift Job against Qwen3-0.6B via KServe, fixing TLS gotchas, and interpreting the HTML report. Includes real benchmark data from a Tesla T4.
 
+2. **[Benchmarking P/D Disaggregation on OpenShift AI with GuideLLM](pd-disaggregation-lab/blog-benchmarking-llm-d-guidellm.md)** -- Deploying Prefill/Decode disaggregation with llm-d, fixing EPP intelligent routing (4 bugs found on RHOAI 3.0-3.2), proving prefix cache with inference-perf, and running all 7 GuideLLM load profiles. Full manifests and results included.
+
 ### Planned
 
-2. Understand Every Metric GuideLLM Produces (TTFT, ITL, TPOT, percentiles)
-3. Master Load Profiles -- All 6 Traffic Patterns
-4. Datasets -- Synthetic vs Real Data
-5. SLOs -- Setting and Validating Performance Targets
-6. Over-Saturation Detection
-7. Red Hat AI Inference Server vs Community vLLM
-8. Multimodal Benchmarking on OpenShift
-9. Air-Gapped Benchmarking
-10. Distributed Inference with llm-d
+3. Understand Every Metric GuideLLM Produces (TTFT, ITL, TPOT, percentiles)
+4. Master Load Profiles -- All 6 Traffic Patterns
+5. Datasets -- Synthetic vs Real Data
+6. SLOs -- Setting and Validating Performance Targets
+7. Over-Saturation Detection
+8. Red Hat AI Inference Server vs Community vLLM
+9. Multimodal Benchmarking on OpenShift
+10. Air-Gapped Benchmarking
 11. CI/CD Benchmarking with Tekton on OpenShift
 
 ## Key Findings (So Far)
@@ -55,9 +56,19 @@ The full 11-step learning path is documented in [blog-series-plan.md](blog-serie
 - **Phase 3 (Steps 6-8):** Advanced features
 - **Phase 4 (Steps 9-11):** Enterprise production workflows
 
-## Manifests
+## P/D Disaggregation Lab
 
-The `manifests/` folder contains ready-to-use OpenShift YAML files to run GuideLLM:
+The [`pd-disaggregation-lab/`](pd-disaggregation-lab/) directory is a self-contained deployment guide for Prefill/Decode disaggregation with llm-d on OpenShift AI. It includes:
+
+- Full LLMInferenceService manifest with all EPP fixes applied
+- EnvoyFilter for RHOAI 3.0-3.2 (required for EPP to work)
+- All 7 GuideLLM benchmark profiles + inference-perf shared-prefix workload
+- Benchmark results (JSON + HTML) with EPP active
+- Step-by-step deploy instructions in its [README](pd-disaggregation-lab/README.md)
+
+## Manifests (Blog 1)
+
+The `manifests/` folder contains ready-to-use OpenShift YAML files to run GuideLLM (for the first blog, single-pod setup):
 
 | File | What it does |
 |------|-------------|
